@@ -1,49 +1,45 @@
 // Implement this class for every new handler.
 
-var Promise = require('bluebird'),
-    helpers = require('lib/helpers'),
-    response = require('lib/cfn-response'),
-    AWS = require('aws-sdk'),
-    dynamoDB = Promise.promisifyAll(new AWS.DynamoDB());
+const
+  utilPromisifyAll = require('util-promisifyall'),
+  helpers = require('lib/helpers'),
+  response = require('lib/cfn-response'),
+  AWS = require('aws-sdk'),
+  dynamoDB = utilPromisifyAll(new AWS.DynamoDB());
 
 exports.Handler = function(event, context) {
   this.event = event;
   this.context = context;
-}
+};
 
-exports.Handler.prototype.handle = function() {
-  var outer = this;
-  Promise.try(function() {
-    switch (outer.event.RequestType) {
+exports.Handler.prototype.handle = async function() {
+  try {
+    let data;
+    let referenceData;
+    switch (this.event.RequestType) {
       case 'Create':
-        return outer.handleCreate()
-        .then(function(data) {
-          return outer.setReferenceData(data)
-          .then(function() {
-            return data;
-          });
-        });
+        const created = await this.handleCreate();
+        await this.setReferenceData(created);
+        data = created;
+        break;
       case 'Delete':
-        return outer.getReferenceData()
-        .then(function(data) {
-          return outer.handleDelete(data);
-        });
+        referenceData = await this.getReferenceData();
+        data = await this.handleDelete(referenceData);
+        break;
       case 'Update':
-        return outer.getReferenceData()
-        .then(function(data) {
-          return outer.handleUpdate();
-        });
+        await this.getReferenceData();
+        data = await this.handleUpdate();
+        break;
       default:
-        throw "Unrecognized RequestType [" + outer.event.RequestType + "]";
+        throw "Unrecognized RequestType [" + this.event.RequestType + "]";
     }
-  })
-  .then(function(data) {
-    response.send(outer.event, outer.context, response.SUCCESS, data);
-  })
-  .catch(function(err) {
-    outer.error(err);
-  });
-}
+
+    response.send(this.event, this.context, response.SUCCESS, data);
+  }
+  catch(err) {
+    this.error(err);
+  }
+};
 
 /*
   When implemented, these should all return a Promise, which will then be completed by the handle()
@@ -54,59 +50,56 @@ exports.Handler.prototype.handle = function() {
 */
 exports.Handler.prototype.handleCreate = function() {
   throw "create method not implemented";
-}
+};
 
+// eslint-disable-next-line no-unused-vars
 exports.Handler.prototype.handleDelete = function(referenceData) {
   throw "delete method not implemented";
-}
+};
 
-exports.Handler.prototype.handleUpdate = function(referenceData) {
-  var self = this;
-  return this.handleDelete(referenceData)
-    .then(function() {
-      return self.handleCreate();
-    });
-}
+exports.Handler.prototype.handleUpdate = async function(referenceData) {
+  await this.handleDelete(referenceData);
+  return await this.handleCreate();
+};
 
 exports.Handler.prototype.error = function(message) {
   console.error(message);
   response.send(this.event, this.context, response.FAILED, { Error: message });
   throw message;
-}
+};
 
 exports.Handler.prototype.getStackName = function() {
-  var functionName = this.context.functionName;
+  const functionName = this.context.functionName;
   // Assume functionName is: stackName-resourceLogicalId-randomString.
   // Per http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html,
   // resourceLogicalId cannot include a '-'; randomString seems to also be alphanumeric.
   // Thus it seems safe to search for the two dashes in order to find the stackName.
-  var i = functionName.lastIndexOf("-", functionName.lastIndexOf("-") - 1);
+  const i = functionName.lastIndexOf("-", functionName.lastIndexOf("-") - 1);
   if (i >= 0)
     return functionName.substr(0, i);
   else
     return functionName;
-}
+};
 
-exports.Handler.prototype.getReferenceData = function() {
-  return dynamoDB.getItemAsync(
+exports.Handler.prototype.getReferenceData = async function() {
+  const data = await dynamoDB.getItemAsync(
     {
       TableName: this.getStackName() + "-reference",
       Key: helpers.formatForDynamo({
         key: this.event.StackId + this.event.LogicalResourceId
       }, true)
     }
-  )
-  .then(function(data) {
-    data = helpers.formatFromDynamo(data);
-    if (data && data.Item && data.Item.value)
-      return data.Item.value;
-    else
-      return null;
-  })
-}
+  );
 
-exports.Handler.prototype.setReferenceData = function(data) {
-  return dynamoDB.putItemAsync(
+  const formattedData = helpers.formatFromDynamo(data);
+  if (formattedData && formattedData.Item && formattedData.Item.value)
+    return formattedData.Item.value;
+  else
+    return null;
+};
+
+exports.Handler.prototype.setReferenceData = async function(data) {
+  return await dynamoDB.putItemAsync(
     {
       TableName: this.getStackName() + "-reference",
       Item: helpers.formatForDynamo({
@@ -115,4 +108,4 @@ exports.Handler.prototype.setReferenceData = function(data) {
       }, true)
     }
   );
-}
+};

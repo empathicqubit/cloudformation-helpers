@@ -10,7 +10,7 @@ exports.FAILED = "FAILED";
  
 exports.send = function(event, context, responseStatus, responseData, physicalResourceId) {
  
-    var responseBody = JSON.stringify({
+    const responseBody = JSON.stringify({
         Status: responseStatus,
         Reason: "See the details in CloudWatch Log Stream: " + context.logStreamName,
         PhysicalResourceId: physicalResourceId || context.logStreamName,
@@ -22,15 +22,15 @@ exports.send = function(event, context, responseStatus, responseData, physicalRe
  
     console.log("Response body:\n", responseBody);
  
-    var https = require("https");
-    var url = require("url");
+    const https = require("https");
+    const url = require("url");
  
     // This script comes from http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-lambda-function-code.html#cfn-lambda-function-code-cfnresponsemodule
     // The only change is this 'if' statement around this block of code, so it doesn't
     // fail when the ResonseURL is missing (i.e. during manual testing).
     if (event.ResponseURL) {
-      var parsedUrl = url.parse(event.ResponseURL);
-      var options = {
+      const parsedUrl = url.parse(event.ResponseURL);
+      const options = {
           hostname: parsedUrl.hostname,
           port: 443,
           path: parsedUrl.path,
@@ -41,7 +41,7 @@ exports.send = function(event, context, responseStatus, responseData, physicalRe
           }
       };
  
-      var request = https.request(options, function(response) {
+      const request = https.request(options, function(response) {
           console.log("Status code: " + response.statusCode);
           console.log("Status message: " + response.statusMessage);
           context.done();
@@ -55,4 +55,4 @@ exports.send = function(event, context, responseStatus, responseData, physicalRe
       request.write(responseBody);
       request.end();
     }
-}
+};

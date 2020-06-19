@@ -1,0 +1,345 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::Serverless-2016-10-31'
+
+Resources:
+    ReferenceDB:
+        Type: 'AWS::DynamoDB::Table'
+        Properties:
+            AttributeDefinitions:
+                - AttributeName: key
+                  AttributeType: S
+            KeySchema:
+                - AttributeName: key
+                  KeyType: HASH
+            ProvisionedThroughput:
+                ReadCapacityUnits: 1
+                WriteCapacityUnits: 1
+            TableName: !Sub '${AWS::StackName}-reference'
+    RoleBasePolicy:
+        Type: 'AWS::IAM::ManagedPolicy'
+        Properties:
+            Description: !Sub 'Base policy for all Lambda function roles in ${AWS::StackName}.'
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Action:
+                          - logs:CreateLogGroup
+                          - logs:CreateLogStream
+                          - logs:PutLogEvents
+                      Resource: 'arn:aws:logs:*:*:*'
+                    - Effect: Allow
+                      Action:
+                          - dynamodb:GetItem
+                          - dynamodb:PutItem
+                          - dynamodb:Scan
+                      Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReferenceDB}'
+    ApiGatewayCreateApiFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: ApiGatewayWriter
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'apigateway:*'
+                            Resource: '*'
+    ApiGatewayCreateApiFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to create a full API in Api Gateway.
+            Handler: aws/apiGateway.createApi
+            Runtime: nodejs12.x
+            Role: !GetAtt 'ApiGatewayCreateApiFunctionRole.Arn'
+            Timeout: 30
+        DependsOn:
+            - ApiGatewayCreateApiFunctionRole
+    CloudWatchLogsPutMetricFilterFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: LogFilterCreator
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'logs:DeleteMetricFilter'
+                                - 'logs:PutMetricFilter'
+                            Resource: '*'
+    CloudWatchLogsPutMetricFilterFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to populate a DynamoDB database from CloudFormation
+            Handler: aws/cloudWatchLogs.putMetricFilter
+            Runtime: nodejs12.x
+            Role: !GetAtt 'CloudWatchLogsPutMetricFilterFunctionRole.Arn'
+            Timeout: 30
+        DependsOn:
+            - CloudWatchLogsPutMetricFilterFunctionRole
+    DynamoDBPutItemsFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: DBWriter
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'dynamodb:DeleteItem'
+                                - 'dynamodb:DescribeTable'
+                                - 'dynamodb:PutItem'
+                            Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*'
+    DynamoDBPutItemsFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to populate a DynamoDB database from CloudFormation
+            Handler: aws/dynamo.putItems
+            Runtime: nodejs12.x
+            Role: !GetAtt 'DynamoDBPutItemsFunctionRole.Arn'
+            Timeout: 30
+        DependsOn:
+            - DynamoDBPutItemsFunctionRole
+    KinesisCreateStreamFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: KinesisCreator
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'kinesis:CreateStream'
+                                - 'kinesis:DeleteStream'
+                                - 'kinesis:DescribeStream'
+                            Resource: '*'
+    KinesisCreateStreamFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to create a Kinesis stream
+            Handler: aws/kinesis.createStream
+            Runtime: nodejs12.x
+            Role: !GetAtt 'KinesisCreateStreamFunctionRole.Arn'
+            Timeout: 180
+        DependsOn:
+            - KinesisCreateStreamFunctionRole
+    S3PutObjectFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: S3Writer
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 's3:DeleteObject'
+                                - 's3:ListBucket'
+                                - 's3:PutObject'
+                            Resource: '*'
+    S3PutObjectFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to put objects into S3.
+            Handler: aws/s3.putObject
+            Runtime: nodejs12.x
+            Role: !GetAtt 'S3PutObjectFunctionRole.Arn'
+            Timeout: 30
+        DependsOn:
+            - S3PutObjectFunctionRole
+    S3PutBucketPolicyFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: S3PolicyWriter
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 's3:ListBucket'
+                                - 's3:PutBucketPolicy'
+                                - 's3:DeleteBucketPolicy'
+                            Resource: '*'
+    S3PutBucketPolicyFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to put S3 bucket policy.
+            Handler: aws/s3.putBucketPolicy
+            Runtime: nodejs12.x
+            Role: !GetAtt 'S3PutBucketPolicyFunctionRole.Arn'
+            Timeout: 30
+        DependsOn:
+            - S3PutBucketPolicyFunctionRole
+    SnsSubscribeFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: SNSSubscriber
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'sns:subscribe'
+                                - 'sns:unsubscribe'
+                            Resource: '*'
+    SnsSubscribeFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to subscribe to existing SNS topics
+            Handler: aws/sns.subscribe
+            Runtime: nodejs12.x
+            Role: !GetAtt 'SnsSubscribeFunctionRole.Arn'
+            Timeout: 30
+        DependsOn:
+            - SnsSubscribeFunctionRole
+    SesCreateReceiptRuleFunctionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            ManagedPolicyArns:
+                - !Ref 'RoleBasePolicy'
+            Policies:
+                - PolicyName: SESReceiptRuleModifier
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'ses:CreateReceiptRule'
+                                - 'ses:DeleteReceiptRule'
+                            Resource: '*'
+    SesCreateReceiptRuleFunction:
+        Type: 'AWS::Serverless::Function'
+        Properties:
+            CodeUri: out/cloudformation-helpers
+            Description: Used to create SES receipt rules
+            Handler: aws/ses.createReceiptRule
+            Runtime: nodejs12.x
+            Role: !GetAtt 'SesCreateReceiptRuleFunctionRole.Arn'
+            Timeout: 30
+        DependsOn:
+            - SesCreateReceiptRuleFunctionRole
+
+Outputs:
+    ApiGatewayCreateApiFunctionArn:
+        Description: The ARN of the ApiGatewayCreateApiFunction, for use in other CloudFormation templates
+        Value: !GetAtt 'ApiGatewayCreateApiFunction.Arn'
+    CloudWatchLogsPutMetricFilterFunctionArn:
+        Description: The ARN of the CloudWatchLogsPutMetricFilterFunction, for use in other CloudFormation templates
+        Value: !GetAtt 'CloudWatchLogsPutMetricFilterFunction.Arn'
+    DynamoDBPutItemsFunctionArn:
+        Description: The ARN of the DynamoDBPutItemsFunction, for use in other CloudFormation templates.
+        Value: !GetAtt 'DynamoDBPutItemsFunction.Arn'
+    KinesisCreateStreamFunctionArn:
+        Description: The ARN of the KinesisCreateStreamFunction, for use in other CloudFormation templates
+        Value: !GetAtt 'KinesisCreateStreamFunction.Arn'
+    SnsSubscribeFunctionArn:
+        Description: The ARN of the SnsSubscribeFunction, for use in other CloudFormation templates.
+        Value: !GetAtt 'SnsSubscribeFunction.Arn'
+    S3PutObjectFunctionArn:
+        Description: The ARN of the S3PutObjectFunction, for use in other CloudFormation templates.
+        Value: !GetAtt 'S3PutObjectFunction.Arn'
+    S3PutBucketPolicyFunctionArn:
+        Description: The ARN of the S3PutBucketPolicyFunction, for use in other CloudFormation templates.
+        Value: !GetAtt 'S3PutBucketPolicyFunction.Arn'
+    SesCreateReceiptRuleFunctionArn:
+        Description: The ARN of the SesCreateReceiptRuleFunction, for use in other CloudFormation templates.
+        Value: !GetAtt 'SesCreateReceiptRuleFunction.Arn'

@@ -1,0 +1,33 @@
+{
+  "name": "cloudformation-helpers",
+  "version": "0.0.0",
+  "description": "A set of helper methods to fill in the gaps in existing CloudFormation support.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/empathicqubit/cloudformation-helpers"
+  },
+  "keywords": [
+    "cloudformation"
+  ],
+  "author": "Ryan Martin, EmpathicQubit",
+  "license": "Apache 2.0",
+  "bugs": {
+    "url": "https://github.com/empathicquibt/cloudformation-helpers/issues"
+  },
+  "scripts": {
+    "package": "shx mkdir -p ../out && shx rm -rf ../out/cloudformation-helpers && shx cp -r ../src ../out/cloudformation-helpers && cd ../out/cloudformation-helpers && yarn install --production",
+    "lint": "eslint .",
+    "deploy": "cd .. && cross-env-shell \"aws cloudformation package --s3-bucket $CF_S3_BUCKET --template-file create_cloudformation_helper_functions.template.yml --output-template-file out/create_cloudformation_helper_functions.template.yml\" && cross-env-shell \"aws cloudformation deploy --template-file out/create_cloudformation_helper_functions.template.yml --capabilities CAPABILITY_NAMED_IAM --stack-name $CF_STACK_NAME\"",
+    "publish": "npm-run-all lint package deploy"
+  },
+  "private": true,
+  "dependencies": {
+    "util-promisifyall": "^1.0.6"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.2",
+    "eslint": "^7.2.0",
+    "npm-run-all": "^4.1.5",
+    "shx": "^0.3.2"
+  }
+}
